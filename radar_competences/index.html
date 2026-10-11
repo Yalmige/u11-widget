@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Radar des compétences</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 10px;
+      background: transparent;
+    }
+    #chart-container {
+      position: relative;
+      width: 100%;
+      max-width: 450px;
+      margin: 0 auto;
+    }
+    h3 {
+      text-align: center;
+      margin-bottom: 5px;
+      font-size: 14px;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+
+<h3 id="joueur-titre">Radar des compétences</h3>
+<div id="chart-container">
+  <canvas id="radarChart"></canvas>
+</div>
+
+<script>
+  let radarChart = null;
+
+  // Initialisation du graphique Chart.js
+  function initChart() {
+    const ctx = document.getElementById('radarChart').getContext('2d');
+    radarChart = new Chart(ctx, {
+      type: 'radar',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Moyenne / 5',
+          data: [],
+          backgroundColor: 'rgba(54, 162, 235, 0.2)',
+          borderColor: 'rgba(54, 162, 235, 1)',
+          borderWidth: 2,
+          pointBackgroundColor: 'rgba(54, 162, 235, 1)'
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          r: {
+            min: 0,
+            max: 5,
+            ticks: { stepSize: 1 }
+          }
+        }
+      }
+    });
+  }
+
+  initChart();
+
+  // Connexion à Grist
+  grist.ready({ requiredAccess: 'read' });
+
+  // Écoute de la sélection du joueur
+  grist.onRecord(async function(record) {
+    if (!record || !record.id) return;
+
+    document.getElementById('joueur-titre').innerText = "Profil : " + (record.Nom_prenom || "Joueur");
+
+    // Récupération de toutes les évaluations et compétences
+    const [evals, competences] = await Promise.all([
+      grist.docApi.fetchTable('Evaluations'),
+      grist.docApi.fetchTable('Competences')
+    ]);
+
+    // Dictionnaire pour associer compétence -> groupe
+    const compGroupMap = {};
+    competences.id.forEach((id, index) => {
+      compGroupMap[id] = competences.Groupe ? competences.Groupe[index] : "Général";
+    });
+
+    // Calcul des moyennes par groupe pour le joueur sélectionné
+    const groupeTotaux = {};
+    const groupeCompte = {};
+
+    evals.id.forEach((id, index) => {
+      const joueurId = evals.Joueur[index];
+      const note = parseFloat(evals.note ? evals.note[index] : 0);
+      const compId = evals.Competence[index];
+
+      if (joueurId === record.id && !isNaN(note) && note > 0) {
+        const groupe = compGroupMap[compId] || "Général";
+        if (!groupeTotaux[groupe]) {
+          groupeTotaux[groupe] = 0;
+          groupeCompte[groupe] = 0;
+        }
+        groupeTotaux[groupe] += note;
+        groupeCompte[groupe] += 1;
+      }
+    });
+
+    // Préparation des données pour le radar
+    const labels = Object.keys(groupeTotaux);
+    const data = labels.map(g => (groupeTotaux[g] / groupeCompte[g]).toFixed(1));
+
+    // Mettre à jour le graphique
+    radarChart.data.labels = labels;
+    radarChart.data.datasets[0].data = data;
+    radarChart.update();
+  });
+</script>
+
+</body>
+</html>
