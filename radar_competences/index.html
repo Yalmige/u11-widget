@@ -2,6 +2,197 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
+  <title>Radar de Compétences - Debug</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 10px; text-align: center; background: transparent; }
+    h3 { margin: 0 0 10px 0; font-size: 14px; color: #2c3e50; }
+    #debug-box { font-size: 11px; color: #c0392b; background: #fadbd8; padding: 5px; border-radius: 4px; margin-top: 5px; text-align: left; max-height: 100px; overflow-y: auto; }
+    #radar-container { width: 100%; max-width: 300px; margin: 0 auto; }
+    svg { width: 100%; height: auto; }
+    .grid-line { stroke: #e0e0e0; stroke-width: 1; fill: none; }
+    .axis { stroke: #cccccc; stroke-width: 1; }
+    .radar-poly { fill: rgba(52, 152, 219, 0.35); stroke: #2980b9; stroke-width: 2; }
+    .radar-point { fill: #2980b9; r: 3; }
+    .label { font-size: 9px; font-weight: 600; fill: #444; text-anchor: middle; }
+  </style>
+</head>
+<body>
+
+<h3 id="joueur-titre">Profil Joueur</h3>
+<div id="radar-container">
+  <svg id="radarSVG" viewBox="0 0 300 300"></svg>
+</div>
+<div id="debug-box">En attente des données Grist...</div>
+
+<script>
+  const svg = document.getElementById('radarSVG');
+  const debugBox = document.getElementById('debug-box');
+  const center = 150, radius = 90, maxVal = 5;
+
+  function logDebug(msg) {
+    console.log(msg);
+    debugBox.innerHTML += "<br>" + msg;
+  }
+
+  grist.ready({ requiredAccess: 'read' });
+
+  grist.onRecord(async function(record) {
+    if (!record || !record.id) {
+      logDebug("Aucun enregistrement de joueur reçu.");
+      return;
+    }
+
+    const nom = record.Nom_prenom || record.Nom || record.Prenom || "ID #" + record.id;
+    document.getElementById('joueur-titre').innerText = "Radar : " + nom;
+    debugBox.innerHTML = "Joueur sélectionné ID: " + record.id;
+
+    try {
+      logDebug("Récupération des tables Evaluations et Competences...");
+      const [evalsData, compsData] = await Promise.all([
+        grist.docApi.fetchTable('Evaluations'),
+        grist.docApi.fetchTable('Competences')
+      ]);
+
+      logDebug("Tables récupérées avec succès.");
+
+      // Analyse des colonnes reçues pour aider au diagnostic
+      logDebug("Colonnes Evaluations: " + Object.keys(evalsData || {}).join(', '));
+      logDebug("Colonnes Competences: " + Object.keys(compsData || {}).join(', '));
+
+      // Mappage compétence -> Groupe
+      const compGroupMap = {};
+      if (compsData && compsData.id) {
+        for (let i = 0; i < compsData.id.length; i++) {
+          const compId = compsData.id[i];
+          const groupe = compsData.Groupe ? compsData.Groupe[i] : (compsData.groupe ? compsData.groupe[i] : "Général");
+          compGroupMap[compId] = groupe;
+        }
+      }
+
+      // Calcul moyennes par groupe
+      const groupeTotaux = {};
+      const groupeCompte = {};
+
+      if (evalsData && evalsData.id) {
+        // Détection automatique des noms de colonnes dans Evaluations
+        const colJoueur = evalsData.Joueur !== undefined ? 'Joueur' : (evalsData.joueur !== undefined ? 'joueur' : null);
+        const colNote = evalsData.note !== undefined ? 'note' : (evalsData.Note !== undefined ? 'Note' : null);
+        const colComp = evalsData.Competence !== undefined ? 'Competence' : (evalsData.competence !== undefined ? 'competence' : null);
+
+        logDebug(`Colonnes détectées -> Joueur: ${colJoueur}, Note: ${colNote}, Comp: ${colComp}`);
+
+        if (!colJoueur || !colNote || !colComp) {
+          logDebug("ERREUR: Noms de colonnes non reconnus dans Evaluations !");
+          return;
+        }
+
+        let evaluationsTrouvees = 0;
+        for (let i = 0; i < evalsData.id.length; i++) {
+          const jId = evalsData[colJoueur][i];
+          const noteVal = evalsData[colNote][i];
+          const cId = evalsData[colComp][i];
+          const note = parseFloat(noteVal);
+
+          // On vérifie si l'évaluation correspond au joueur sélectionné
+          if (jId === record.id) {
+            evaluationsTrouvees++;
+            if (!isNaN(note) && note > 0) {
+              const grp = compGroupMap[cId] || "Général";
+              groupeTotaux[grp] = (groupeTotaux[grp] || 0) + note;
+              groupeCompte[grp] = (groupeCompte[grp] || 0) + 1;
+            }
+          }
+        }
+        logDebug(`Évaluations trouvées pour ce joueur : ${evaluationsTrouvees}`);
+      }
+
+      const categories = Object.keys(groupeTotaux);
+      const scores = categories.map(g => (groupeTotaux[g] / groupeCompte[g]));
+      logDebug(`Groupes calculés : ${categories.length} (minimum 3 requis)`);
+
+      drawRadar(categories, scores);
+
+    } catch (err) {
+      logDebug("Erreur fatale : " + err.message);
+      console.error(err);
+    }
+  });
+
+  function drawRadar(labels, values) {
+    svg.innerHTML = '';
+    
+    if (labels.length < 3) {
+      svg.innerHTML = `<text x="${center}" y="${center}" text-anchor="middle" fill="#c0392b" font-size="10">
+        Groupes insuffisants (${labels.length}/3 min)
+      </text>`;
+      return;
+    }
+
+    const totalAxes = labels.length;
+    const angleStep = (Math.PI * 2) / totalAxes;
+
+    // Toile de fond
+    for (let level = 1; level <= maxVal; level++) {
+      const r = (radius / maxVal) * level;
+      let points = [];
+      for (let i = 0; i < totalAxes; i++) {
+        const angle = i * angleStep - Math.PI / 2;
+        points.push(`${center + r * Math.cos(angle)},${center + r * Math.sin(angle)}`);
+      }
+      const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+      poly.setAttribute("points", points.join(" "));
+      poly.setAttribute("class", "grid-line");
+      svg.appendChild(poly);
+    }
+
+    // Axes et labels
+    for (let i = 0; i < totalAxes; i++) {
+      const angle = i * angleStep - Math.PI / 2;
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", center); line.setAttribute("y1", center);
+      line.setAttribute("x2", center + radius * Math.cos(angle));
+      line.setAttribute("y2", center + radius * Math.sin(angle));
+      line.setAttribute("class", "axis");
+      svg.appendChild(line);
+
+      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      const lr = radius + 22;
+      text.setAttribute("x", center + lr * Math.cos(angle));
+      text.setAttribute("y", center + lr * Math.sin(angle) + 3);
+      text.setAttribute("class", "label");
+      text.textContent = labels[i] + ` (${values[i].toFixed(1)})`;
+      svg.appendChild(text);
+    }
+
+    // Polygone joueur
+    let dataPoints = [];
+    for (let i = 0; i < totalAxes; i++) {
+      const angle = i * angleStep - Math.PI / 2;
+      const vr = (radius / maxVal) * Math.min(values[i], maxVal);
+      dataPoints.push(`${center + vr * Math.cos(angle)},${center + vr * Math.sin(angle)}`);
+    }
+
+    const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    poly.setAttribute("points", dataPoints.join(" "));
+    poly.setAttribute("class", "radar-poly");
+    svg.appendChild(poly);
+
+    dataPoints.forEach(pt => {
+      const [cx, cy] = pt.split(',');
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("cx", cx); c.setAttribute("cy", cy);
+      c.setAttribute("class", "radar-point");
+      svg.appendChild(c);
+    });
+  }
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
   <title>Radar de Compétences</title>
   <!-- Chargement synchrone de l'API Grist -->
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
