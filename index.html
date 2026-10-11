@@ -346,10 +346,10 @@
                     if (noteVal >= 1 && noteVal <= 5) {
                         actions.push([
                             'AddRecord', 'Evaluations', null, {
-                                Date: dateJour,
+                                date: dateJour,
                                 Joueur: joueurActif.id,
                                 Competence: competenceId,
-                                Note: noteVal,
+                                note: noteVal,
                                 Commentaire: commentaireVal
                             }
                         ]);
