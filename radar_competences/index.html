@@ -2,30 +2,42 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Radar de Compétences</title>
+  <title>Radar de Compétences - Comparatif</title>
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 10px; text-align: center; background: transparent; }
-    h3 { margin: 0 0 10px 0; font-size: 14px; color: #2c3e50; }
-    #radar-container { width: 100%; max-width: 320px; margin: 0 auto; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 5px; text-align: center; background: transparent; }
+    h3 { margin: 0 0 2px 0; font-size: 13px; color: #2c3e50; }
+    #legend { font-size: 10px; margin-bottom: 5px; color: #555; }
+    .player-legend { color: #2980b9; font-weight: bold; }
+    .team-legend { color: #7f8c8d; font-weight: bold; }
+    #radar-container { width: 100%; max-width: 300px; margin: 0 auto; }
     svg { width: 100%; height: auto; overflow: visible; }
     .grid-line { stroke: #e0e0e0; stroke-width: 1; fill: none; }
     .axis { stroke: #cccccc; stroke-width: 1; }
-    .radar-poly { fill: rgba(52, 152, 219, 0.35); stroke: #2980b9; stroke-width: 2.5; }
+    
+    /* Style du joueur (Bleu) */
+    .radar-poly { fill: rgba(52, 152, 219, 0.3); stroke: #2980b9; stroke-width: 2.5; }
     .radar-point { fill: #2980b9; r: 3.5; }
+    
+    /* Style de l'équipe (Gris / Pointillé) */
+    .team-poly { fill: rgba(127, 140, 141, 0.15); stroke: #7f8c8d; stroke-width: 1.5; stroke-dasharray: 4,4; }
+    
     .label { font-size: 9px; font-weight: 600; fill: #333; text-anchor: middle; }
   </style>
 </head>
 <body>
 
 <h3 id="joueur-titre">Profil Joueur</h3>
+<div id="legend">
+  <span class="player-legend">■ Joueur</span> &nbsp;|&nbsp; <span class="team-legend">╍╍ Moyenne Équipe</span>
+</div>
 <div id="radar-container">
   <svg id="radarSVG" viewBox="0 0 300 300"></svg>
 </div>
 
 <script>
   const svg = document.getElementById('radarSVG');
-  const center = 150, radius = 90, maxVal = 5;
+  const center = 150, radius = 85, maxVal = 5;
 
   grist.ready({ requiredAccess: 'read' });
 
@@ -41,7 +53,7 @@
         grist.docApi.fetchTable('Competences')
       ]);
 
-      // Mappage compétence -> Groupe avec nettoyage des espaces (.trim())
+      // Mappage compétence -> Groupe
       const compGroupMap = {};
       if (compsData && compsData.id) {
         for (let i = 0; i < compsData.id.length; i++) {
@@ -54,47 +66,59 @@
         }
       }
 
-      // Calcul des moyennes par groupe
-      const groupeTotaux = {};
-      const groupeCompte = {};
+      if (!evalsData || !evalsData.id) return;
 
-      if (evalsData && evalsData.id) {
-        const colJoueur = evalsData.Joueur !== undefined ? 'Joueur' : 'joueur';
-        const colNote = evalsData.note !== undefined ? 'note' : 'Note';
-        const colComp = evalsData.Competence !== undefined ? 'Competence' : 'competence';
+      const colJoueur = evalsData.Joueur !== undefined ? 'Joueur' : 'joueur';
+      const colNote = evalsData.note !== undefined ? 'note' : 'Note';
+      const colComp = evalsData.Competence !== undefined ? 'Competence' : 'competence';
 
-        for (let i = 0; i < evalsData.id.length; i++) {
-          const jId = evalsData[colJoueur][i];
-          const noteVal = evalsData[colNote][i];
-          const cId = evalsData[colComp][i];
-          const note = parseFloat(noteVal);
+      // 1. Calcul des moyennes du JOUEUR par groupe
+      const playerTotaux = {};
+      const playerCompte = {};
 
-          if (jId === record.id && !isNaN(note) && note > 0) {
-            const grp = compGroupMap[cId] || "Autre";
-            groupeTotaux[grp] = (groupeTotaux[grp] || 0) + note;
-            groupeCompte[grp] = (groupeCompte[grp] || 0) + 1;
+      // 2. Calcul des moyennes de l'ÉQUIPE ENTIÈRE par groupe
+      const teamTotaux = {};
+      const teamCompte = {};
+
+      for (let i = 0; i < evalsData.id.length; i++) {
+        const jId = evalsData[colJoueur][i];
+        const noteVal = evalsData[colNote][i];
+        const cId = evalsData[colComp][i];
+        const note = parseFloat(noteVal);
+
+        if (!isNaN(note) && note > 0) {
+          const grp = compGroupMap[cId] || "Autre";
+
+          // Pour l'équipe globale
+          teamTotaux[grp] = (teamTotaux[grp] || 0) + note;
+          teamCompte[grp] = (teamCompte[grp] || 0) + 1;
+
+          // Pour le joueur sélectionné
+          if (jId === record.id) {
+            playerTotaux[grp] = (playerTotaux[grp] || 0) + note;
+            playerCompte[grp] = (playerCompte[grp] || 0) + 1;
           }
         }
       }
 
-      const categories = Object.keys(groupeTotaux);
-      console.log("Groupes détectés pour ce joueur :", categories);
+      const categories = Object.keys(teamTotaux);
       
-      const scores = categories.map(g => (groupeTotaux[g] / groupeCompte[g]));
+      const playerScores = categories.map(g => playerCompte[g] ? (playerTotaux[g] / playerCompte[g]) : 0);
+      const teamScores = categories.map(g => teamCompte[g] ? (teamTotaux[g] / teamCompte[g]) : 0);
 
-      drawRadar(categories, scores);
+      drawRadar(categories, playerScores, teamScores);
 
     } catch (err) {
       console.error("Erreur Grist :", err);
     }
   });
 
-  function drawRadar(labels, values) {
+  function drawRadar(labels, playerValues, teamValues) {
     svg.innerHTML = '';
     
     if (labels.length < 3) {
       svg.innerHTML = `<text x="${center}" y="${center}" text-anchor="middle" fill="#c0392b" font-size="10">
-        Groupes détectés : ${labels.join(', ')} (${labels.length}/3 min)
+        Nécessite au moins 3 groupes (${labels.length}/3)
       </text>`;
       return;
     }
@@ -102,7 +126,7 @@
     const totalAxes = labels.length;
     const angleStep = (Math.PI * 2) / totalAxes;
 
-    // Toile de fond
+    // Toile de fond (cercles/polygones concentriques)
     for (let level = 1; level <= maxVal; level++) {
       const r = (radius / maxVal) * level;
       let points = [];
@@ -127,28 +151,40 @@
       svg.appendChild(line);
 
       const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      const lr = radius + 22;
+      const lr = radius + 25;
       text.setAttribute("x", center + lr * Math.cos(angle));
       text.setAttribute("y", center + lr * Math.sin(angle) + 3);
       text.setAttribute("class", "label");
-      text.textContent = labels[i] + ` (${values[i].toFixed(1)})`;
+      text.textContent = labels[i] + ` (${playerValues[i].toFixed(1)})`;
       svg.appendChild(text);
     }
 
-    // Polygone joueur
-    let dataPoints = [];
+    // 1. Tracé de la moyenne ÉQUIPE (en arrière-plan, pointillé gris)
+    let teamPoints = [];
     for (let i = 0; i < totalAxes; i++) {
       const angle = i * angleStep - Math.PI / 2;
-      const vr = (radius / maxVal) * Math.min(values[i], maxVal);
-      dataPoints.push(`${center + vr * Math.cos(angle)},${center + vr * Math.sin(angle)}`);
+      const vr = (radius / maxVal) * Math.min(teamValues[i], maxVal);
+      teamPoints.push(`${center + vr * Math.cos(angle)},${center + vr * Math.sin(angle)}`);
     }
+    const teamPoly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    teamPoly.setAttribute("points", teamPoints.join(" "));
+    teamPoly.setAttribute("class", "team-poly");
+    svg.appendChild(teamPoly);
 
-    const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-    poly.setAttribute("points", dataPoints.join(" "));
-    poly.setAttribute("class", "radar-poly");
-    svg.appendChild(poly);
+    // 2. Tracé du JOUEUR (en premier plan, plein bleu)
+    let playerPoints = [];
+    for (let i = 0; i < totalAxes; i++) {
+      const angle = i * angleStep - Math.PI / 2;
+      const vr = (radius / maxVal) * Math.min(playerValues[i], maxVal);
+      playerPoints.push(`${center + vr * Math.cos(angle)},${center + vr * Math.sin(angle)}`);
+    }
+    const playerPoly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    playerPoly.setAttribute("points", playerPoints.join(" "));
+    playerPoly.setAttribute("class", "radar-poly");
+    svg.appendChild(playerPoly);
 
-    dataPoints.forEach(pt => {
+    // Points du joueur
+    playerPoints.forEach(pt => {
       const [cx, cy] = pt.split(',');
       const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       c.setAttribute("cx", cx); c.setAttribute("cy", cy);
