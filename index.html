@@ -95,10 +95,16 @@
             return ids;
         }
 
-        // Initialisation Grist
-        grist.ready({ requiredAccess: 'full' });
+        // =========================================================================
+        // CONNEXION EXTERNE À GRIST
+        // Remplace l'URL ci-dessous par l'adresse complète de ton document Grist en ligne
+        // =========================================================================
+        grist.ready({
+            requiredAccess: 'full',
+            allowSelectBy: true
+        });
 
-// Chargement initial des joueurs (Corrigé pour détecter à coup sûr le nom)
+        // Chargement initial des joueurs
         async function initialiserApplication() {
             try {
                 statusEl.innerHTML = "<span class='success'>Connecté à Grist ! Chargement des joueurs...</span>";
@@ -122,22 +128,19 @@
 
                 selectJoueur.innerHTML = '<option value="">-- Choisir un joueur --</option>';
                 
-                // On s'assure d'identifier le champ de nom de manière robuste pour chaque joueur
                 listeJoueursComprete.forEach(j => {
-                    // Recherche intelligente du nom dans toutes les propriétés de la ligne
                     let nomAffichage = j.Nom || j.Nom_Du_Joueur || j.Nom_famille || j.Prenom || j.Prénom;
                     
                     if (!nomAffichage) {
                         const keys = Object.keys(j);
                         const textKey = keys.find(k => typeof j[k] === 'string' && k !== 'id' && j[k].trim() !== '');
-                        nomAffichage = textKey ? j[k] : ("Joueur #" + j.id);
+                        nomAffichage = textKey ? j[textKey] : ("Joueur #" + j.id);
                     }
 
-                    // Stockage temporaire du nom résolu pour le tri et l'affichage
-                    j._nomResolver = nomAffichage;
+                    j._nomResolver = String(nomAffichage);
                 });
 
-                // Tri alphabétique des joueurs par leur nom résolu
+                // Tri alphabétique des joueurs
                 listeJoueursComprete.sort((a, b) => a._nomResolver.localeCompare(b._nomResolver));
 
                 listeJoueursComprete.forEach(j => {
@@ -283,7 +286,7 @@
                 tableBody.innerHTML = '';
 
                 if (lignesFiltrees.length === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Aucune compétence disponible pour ce profil.</td></tr>';
+                    tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Aucune compétence disponible pour este profil.</td></tr>';
                     return;
                 }
 
@@ -344,7 +347,6 @@
                 await grist.docApi.applyUserActions(actions);
                 alert(`${actions.length} évaluation(s) enregistrée(s) avec succès pour ${selectJoueur.options[selectJoueur.selectedIndex].text} !`);
                 
-                // Réinitialisation des notes et du choix du joueur
                 rows.forEach(tr => {
                     const noteInput = tr.querySelector('.input-note');
                     const commInput = tr.querySelector('.input-comm');
