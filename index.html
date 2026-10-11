@@ -72,7 +72,6 @@
 
         let listeJoueursComprete = [];
         let joueurActif = null;
-        let gristInitialise = false;
 
         function afficherErreur(message) {
             errorEl.style.display = 'block';
@@ -96,31 +95,13 @@
             return ids;
         }
 
-        // Lancement sécurisé de l'application
-        function demarrerApp() {
-            if (gristInitialise) return;
-            gristInitialise = true;
-            initialiserApplication();
-        }
-
-        // Configuration Grist avec double sécurité (événement natif + déclenchement forcé)
-        grist.ready({
-            requiredAccess: 'full',
-            onReady: demarrerApp
-        });
-
-        // Sécurité anti-blocage (si l'événement grist.ready tarde trop)
-        setTimeout(() => {
-            if (!gristInitialise) {
-                console.warn("Délai d'attente Grist dépassé, lancement forcé...");
-                demarrerApp();
-            }
-        }, 2000);
-
-        // Chargement initial des joueurs
+        // Lancement immédiat de l'initialisation sans attendre l'événement bloquant de Grist
         async function initialiserApplication() {
             try {
-                statusEl.innerHTML = "<span class='success'>Connexion établie ! Chargement des joueurs...</span>";
+                // Initialisation de l'API Grist en arrière-plan
+                grist.ready({ requiredAccess: 'full' });
+
+                statusEl.innerHTML = "<span class='success'>Chargement des données...</span>";
 
                 const rawJoueurs = await grist.docApi.fetchTable('Joueurs');
                 listeJoueursComprete = [];
@@ -201,13 +182,17 @@
                     selectJoueur.appendChild(opt);
                 });
 
-                statusEl.style.display = 'none';
+                // On masque l'en-tête de statut et on affiche l'application
+                statusEl.parentElement.style.display = 'none';
                 appContainer.style.display = 'block';
 
             } catch (err) {
                 afficherErreur("Impossible de charger la table Joueurs : " + err.message);
             }
         }
+
+        // Lancement au chargement de la page
+        initialiserApplication();
 
         // Événement : Changement de joueur dans le menu déroulant
         selectJoueur.addEventListener('change', async function() {
