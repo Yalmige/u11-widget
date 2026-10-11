@@ -12,6 +12,7 @@
         .form-group { margin-bottom: 15px; }
         label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px; color: #1e293b; }
         
+        /* Menu déroulant clair avec texte foncé pour une lisibilité parfaite */
         select { 
             width: 100%; 
             padding: 12px; 
@@ -68,7 +69,7 @@
                     </tr>
                 </thead>
                 <tbody id="table-body">
-                    <!-- Lignes injectées dynamiquement -->
+                    <!-- Les lignes triées seront injectées ici -->
                 </tbody>
             </table>
             
@@ -110,7 +111,7 @@
             return ids;
         }
 
-        // Connexion native Grist
+        // Initialisation Grist
         grist.ready({ requiredAccess: 'full' });
 
         async function initialiserApplication() {
@@ -134,16 +135,17 @@
                     }
                 }
 
-                selectJoueur.innerHTML = '<option value="">-- Choisir un joueur --</option>';
+                selectJoueur.innerHTML = '<option value="">-- Choisir un joueur dans la liste --</option>';
                 
                 listeJoueursComprete.forEach(j => {
                     let nomResolus = "";
 
-                    // Ciblage direct et prioritaire du champ exact Nom_prenom
+                    // 1. Extraction directe via le champ exact 'Nom_prenom'
                     if (j.Nom_prenom && typeof j.Nom_prenom === 'string' && j.Nom_prenom.trim() !== '') {
                         nomResolus = j.Nom_prenom.trim();
-                    } else {
-                        // Recherche insensible à la casse au cas où
+                    } 
+                    // 2. Variante insensible à la casse si jamais l'API renvoie de minuscules
+                    else {
                         for (let key in j) {
                             if (key.toLowerCase() === 'nom_prenom') {
                                 let val = j[key];
@@ -155,7 +157,7 @@
                         }
                     }
 
-                    // Secours sur le libellé d'affichage Grist
+                    // 3. Secours sur gristHelper_Display si 'Nom_prenom' était vide sur une ligne
                     if (!nomResolus && j.gristHelper_Display && typeof j.gristHelper_Display === 'string') {
                         nomResolus = j.gristHelper_Display.trim();
                     }
@@ -163,7 +165,7 @@
                     j._nomResolver = nomResolus || ("Joueur #" + j.id);
                 });
 
-                // Tri alphabétique
+                // Tri alphabétique par nom de joueur
                 listeJoueursComprete.sort((a, b) => a._nomResolver.localeCompare(b._nomResolver));
 
                 listeJoueursComprete.forEach(j => {
@@ -173,7 +175,7 @@
                     selectJoueur.appendChild(opt);
                 });
 
-                statusEl.parentElement.style.display = 'none';
+                statusEl.style.display = 'none';
                 appContainer.style.display = 'block';
 
             } catch (err) {
@@ -183,6 +185,7 @@
 
         initialiserApplication();
 
+        // Sélection du joueur
         selectJoueur.addEventListener('change', async function() {
             const joueurId = parseInt(this.value);
             if (!joueurId) {
@@ -207,6 +210,7 @@
             await chargerEtTrierGrille(playerPosteIds);
         });
 
+        // Chargement et tri de la grille de compétences
         async function chargerEtTrierGrille(playerPosteIds) {
             try {
                 tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Chargement des compétences...</td></tr>';
@@ -324,6 +328,7 @@
             }
         }
 
+        // Validation groupée
         btnValider.addEventListener('click', async function() {
             if (!joueurActif) return;
 
@@ -379,111 +384,4 @@
         });
     </script>
 </body>
-</html><!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <title>Saisie Terrain U11</title>
-    <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
-    <style>
-        body { font-family: sans-serif; padding: 15px; background: #f4f6f9; color: #333; max-width: 800px; margin: auto; }
-        .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 15px; }
-        .error { color: #d9534f; background: #fdf7f7; padding: 10px; border-left: 4px solid #d9534f; margin-top: 10px; }
-        .success { color: #5cb85c; font-weight: bold; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px; color: #1e293b; }
-        
-        /* Menu déroulant clair avec texte foncé pour une lisibilité parfaite */
-        select { 
-            width: 100%; 
-            padding: 12px; 
-            border: 2px solid #cbd5e1; 
-            border-radius: 6px; 
-            font-size: 16px; 
-            background-color: #ffffff !important; 
-            color: #0f172a !important; 
-            font-weight: 600;
-        }
-        select option {
-            background-color: #ffffff !important;
-            color: #0f172a !important;
-            padding: 10px;
-        }
-        
-        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; background: white; }
-        th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; font-size: 13px; color: #0f172a; }
-        th { background-color: #f2f2f2; font-weight: bold; }
-        input[type="number"] { width: 50px; padding: 5px; text-align: center; border: 1px solid #ccc; border-radius: 4px; }
-        input[type="text"] { width: 100%; padding: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
-        
-        button.btn-save { background: #5cb85c; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; width: 100%; font-weight: bold; font-size: 16px; }
-        button.btn-save:hover { background: #4cae4c; }
-        .type-badge { font-size: 11px; padding: 2px 6px; border-radius: 3px; background: #e2e8f0; color: #475569; display: inline-block; margin-bottom: 2px; }
-        .cat-badge { font-size: 11px; padding: 2px 6px; border-radius: 3px; background: #e0f2fe; color: #0369a1; font-weight: bold; }
-    </style>
-</head>
-<body>
-
-    <div class="card">
-        <h3>Feuille d'Évaluation Terrain - U11</h3>
-        <div id="connection-status">Connexion à Grist en cours...</div>
-        <div id="error-box" class="error" style="display:none;"></div>
-    </div>
-
-    <div id="app-container" class="card" style="display:none;">
-        <div class="form-group">
-            <label for="select-joueur">Sélectionner un joueur :</label>
-            <select id="select-joueur">
-                <option value="">-- Choisir un joueur --</option>
-            </select>
-        </div>
-
-        <div id="grille-container" style="display:none;">
-            <table id="eval-table">
-                <thead>
-                    <tr>
-                        <th style="width: 12%;">Type</th>
-                        <th style="width: 25%;">Catégorie / Poste</th>
-                        <th style="width: 28%;">Compétence</th>
-                        <th style="width: 10%;">Note (1-5)</th>
-                        <th style="width: 25%;">Commentaire</th>
-                    </tr>
-                </thead>
-                <tbody id="table-body">
-                    <!-- Les lignes triées seront injectées ici -->
-                </tbody>
-            </table>
-            
-            <button type="button" class="btn-save" id="btn-valider">Enregistrer toutes les évaluations</button>
-        </div>
-    </div>
-
-    <script>
-        const statusEl = document.getElementById('connection-status');
-        const errorEl = document.getElementById('error-box');
-        const appContainer = document.getElementById('app-container');
-        const selectJoueur = document.getElementById('select-joueur');
-        const grilleContainer = document.getElementById('grille-container');
-        const tableBody = document.getElementById('table-body');
-        const btnValider = document.getElementById('btn-valider');
-
-        let listeJoueursComprete = [];
-        let joueurActif = null;
-
-        function afficherErreur(message) {
-            errorEl.style.display = 'block';
-            errorEl.innerText = "Erreur : " + message;
-        }
-
-        function extraireIds(valeur) {
-            let ids = [];
-            if (typeof valeur === 'number') {
-                ids.push(valeur);
-            } else if (Array.isArray(valeur)) {
-                valeur.forEach(v => {
-                    if (typeof v === 'number') ids.push(v);
-                    else if (typeof v === 'string' && !isNaN(parseInt(v)) && v !== 'L') ids.push(parseInt(v));
-                });
-            } else if (valeur && typeof valeur === 'object' && valeur.id) {
-                ids.push(valeur.id);
-            } else
+</html>
