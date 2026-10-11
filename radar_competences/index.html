@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Radar de Compétences</title>
-  <script src="[https://docs.getgrist.com/grist-plugin-api.js](https://docs.getgrist.com/grist-plugin-api.js)"></script>
+  <!-- Chargement synchrone de l'API Grist -->
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -33,7 +34,6 @@
     .radar-poly { fill: rgba(52, 152, 219, 0.35); stroke: #2980b9; stroke-width: 2.5; }
     .radar-point { fill: #2980b9; r: 4; }
     .label { font-size: 10px; font-weight: 600; fill: #444; text-anchor: middle; }
-    .value-text { font-size: 9px; fill: #777; text-anchor: middle; }
   </style>
 </head>
 <body>
@@ -50,141 +50,47 @@
   const radius = 100;
   const maxVal = 5;
 
-  grist.ready({ requiredAccess: 'read' });
+  // Vérification de la disponibilité de l'objet grist
+  if (typeof grist !== 'undefined') {
+    grist.ready({ requiredAccess: 'read' });
 
-  grist.onRecord(async function(record) {
-    if (!record || !record.id) return;
+    grist.onRecord(async function(record) {
+      if (!record || !record.id) return;
 
-    const nom = record.Nom_prenom || record.Nom || "Joueur";
-    document.getElementById('joueur-titre').innerText = "Radar : " + nom;
+      const nom = record.Nom_prenom || record.Nom || "Joueur";
+      document.getElementById('joueur-titre').innerText = "Radar : " + nom;
 
-    try {
-      const [evalsData, compsData] = await Promise.all([
-        grist.docApi.fetchTable('Evaluations'),
-        grist.docApi.fetchTable('Competences')
-      ]);
+      try {
+        const [evalsData, compsData] = await Promise.all([
+          grist.docApi.fetchTable('Evaluations'),
+          grist.docApi.fetchTable('Competences')
+        ]);
 
-      // Mappage compétence -> Groupe
-      const compGroupMap = {};
-      if (compsData && compsData.id) {
-        for (let i = 0; i < compsData.id.length; i++) {
-          const compId = compsData.id[i];
-          const groupe = (compsData.Groupe && compsData.Groupe[i]) ? compsData.Groupe[i] : "Général";
-          compGroupMap[compId] = groupe;
-        }
-      }
-
-      // Calcul moyennes par groupe
-      const groupeTotaux = {};
-      const groupeCompte = {};
-
-      if (evalsData && evalsData.id) {
-        for (let i = 0; i < evalsData.id.length; i++) {
-          const jId = evalsData.Joueur[i];
-          const noteVal = evalsData.note ? evalsData.note[i] : (evalsData.Note ? evalsData.Note[i] : null);
-          const cId = evalsData.Competence[i];
-          const note = parseFloat(noteVal);
-
-          if (jId === record.id && !isNaN(note) && note > 0) {
-            const grp = compGroupMap[cId] || "Général";
-            groupeTotaux[grp] = (groupeTotaux[grp] || 0) + note;
-            groupeCompte[grp] = (groupeCompte[grp] || 0) + 1;
+        const compGroupMap = {};
+        if (compsData && compsData.id) {
+          for (let i = 0; i < compsData.id.length; i++) {
+            const compId = compsData.id[i];
+            const groupe = (compsData.Groupe && compsData.Groupe[i]) ? compsData.Groupe[i] : "Général";
+            compGroupMap[compId] = groupe;
           }
         }
-      }
 
-      const categories = Object.keys(groupeTotaux);
-      const scores = categories.map(g => (groupeTotaux[g] / groupeCompte[g]));
+        const groupeTotaux = {};
+        const groupeCompte = {};
 
-      drawRadar(categories, scores);
+        if (evalsData && evalsData.id) {
+          for (let i = 0; i < evalsData.id.length; i++) {
+            const jId = evalsData.Joueur[i];
+            const noteVal = evalsData.note ? evalsData.note[i] : (evalsData.Note ? evalsData.Note[i] : null);
+            const cId = evalsData.Competence[i];
+            const note = parseFloat(noteVal);
 
-    } catch (err) {
-      console.error("Erreur Grist :", err);
-    }
-  });
+            if (jId === record.id && !isNaN(note) && note > 0) {
+              const grp = compGroupMap[cId] || "Général";
+              groupeTotaux[grp] = (groupeTotaux[grp] || 0) + note;
+              groupeCompte[grp] = (groupeCompte[grp] || 0) + 1;
+            }
+          }
+        }
 
-  function drawRadar(labels, values) {
-    svg.innerHTML = '';
-    
-    if (labels.length < 3) {
-      svg.innerHTML = `<text x="${center}" y="${center}" text-anchor="middle" fill="#888" font-size="12">
-        Minimum 3 groupes de compétences évalués requis (${labels.length}/3)
-      </text>`;
-      return;
-    }
-
-    const totalAxes = labels.length;
-    const angleStep = (Math.PI * 2) / totalAxes;
-
-    // 1. Dessin des cercles/toiles de fond (notes 1 à 5)
-    for (let level = 1; level <= maxVal; level++) {
-      const r = (radius / maxVal) * level;
-      let points = [];
-      for (let i = 0; i < totalAxes; i++) {
-        const angle = i * angleStep - Math.PI / 2;
-        const x = center + r * Math.cos(angle);
-        const y = center + r * Math.sin(angle);
-        points.push(`${x},${y}`);
-      }
-      const polygon = document.createElementNS("[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)", "polygon");
-      polygon.setAttribute("points", points.join(" "));
-      polygon.setAttribute("class", "grid-line");
-      svg.appendChild(polygon);
-    }
-
-    // 2. Dessin des axes + Libellés
-    for (let i = 0; i < totalAxes; i++) {
-      const angle = i * angleStep - Math.PI / 2;
-      const xEnd = center + radius * Math.cos(angle);
-      const yEnd = center + radius * Math.sin(angle);
-
-      const line = document.createElementNS("[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)", "line");
-      line.setAttribute("x1", center);
-      line.setAttribute("y1", center);
-      line.setAttribute("x2", xEnd);
-      line.setAttribute("y2", yEnd);
-      line.setAttribute("class", "axis");
-      svg.appendChild(line);
-
-      // Emplacement du texte
-      const labelRadius = radius + 22;
-      const xLabel = center + labelRadius * Math.cos(angle);
-      const yLabel = center + labelRadius * Math.sin(angle);
-
-      const text = document.createElementNS("[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)", "text");
-      text.setAttribute("x", xLabel);
-      text.setAttribute("y", yLabel + 4);
-      text.setAttribute("class", "label");
-      text.textContent = labels[i] + ` (${values[i].toFixed(1)})`;
-      svg.appendChild(text);
-    }
-
-    // 3. Dessin du polygone des notes du joueur
-    let dataPoints = [];
-    for (let i = 0; i < totalAxes; i++) {
-      const angle = i * angleStep - Math.PI / 2;
-      const valRadius = (radius / maxVal) * Math.min(values[i], maxVal);
-      const x = center + valRadius * Math.cos(angle);
-      const y = center + valRadius * Math.sin(angle);
-      dataPoints.push(`${x},${y}`);
-    }
-
-    const radarPoly = document.createElementNS("[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)", "polygon");
-    radarPoly.setAttribute("points", dataPoints.join(" "));
-    radarPoly.setAttribute("class", "radar-poly");
-    svg.appendChild(radarPoly);
-
-    // 4. Dessin des points bleus
-    for (let i = 0; i < totalAxes; i++) {
-      const [px, py] = dataPoints[i].split(',');
-      const circle = document.createElementNS("[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)", "circle");
-      circle.setAttribute("cx", px);
-      circle.setAttribute("cy", py);
-      circle.setAttribute("class", "radar-point");
-      svg.appendChild(circle);
-    }
-  }
-</script>
-
-</body>
-</html>
+        const categories = Object.keys
