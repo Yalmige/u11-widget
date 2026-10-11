@@ -35,73 +35,20 @@
 
     <div id="app-container" class="card" style="display:none;">
         <div class="form-group">
-            <label for="select-joueur">Sélectionner un joueur :</label>
-            <select id="select-joueur">
-                <option value="">-- Choisir un joueur dans la liste --</option>
-            </select>
-        </div>
+            <label for="select-L'image est très claire : le widget parvient bien à lire la table `Joueurs` (puisqu'il trouve 17 enregistrements), mais il n'arrive pas à extraire le libellé du nom et retombe sur le mécanisme de secours `"Joueur #" + j.id`[cite: 2].
 
-        <div id="grille-container" style="display:none;">
-            <table id="eval-table">
-                <thead>
-                    <tr>
-                        <th style="width: 12%;">Type</th>
-                        <th style="width: 25%;">Catégorie / Poste</th>
-                        <th style="width: 28%;">Compétence</th>
-                        <th style="width: 10%;">Note (1-5)</th>
-                        <th style="width: 25%;">Commentaire</th>
-                    </tr>
-                </thead>
-                <tbody id="table-body">
-                    <!-- Les lignes triées seront injectées ici -->
-                </tbody>
-            </table>
-            
-            <button type="button" class="btn-save" id="btn-valider">Enregistrer toutes les évaluations</button>
-        </div>
-    </div>
+Cela se produit généralement pour deux raisons principales avec l'API Grist :
+1. **Les colonnes de noms sont des colonnes de type Formule / Référence** (ou ont des identifiants internes comme `Nom_du_joueur` distincts de l'étiquette affichée).
+2. **Le format renvoyé par `fetchTable`** nécessite de passer par les fonctions d'assistance Grist pour résoudre les colonnes d'affichage.
 
-    <script>
-        const statusEl = document.getElementById('connection-status');
-        const errorEl = document.getElementById('error-box');
-        const appContainer = document.getElementById('app-container');
-        const selectJoueur = document.getElementById('select-joueur');
-        const grilleContainer = document.getElementById('grille-container');
-        const tableBody = document.getElementById('table-body');
-        const btnValider = document.getElementById('btn-valider');
+---
 
-        let listeJoueursComprete = [];
-        let joueurActif = null;
+### Solution : Utilisation de `grist.docApi.fetchSelectedTable()` ou ciblage direct des champs
 
-        function afficherErreur(message) {
-            errorEl.style.display = 'block';
-            errorEl.innerText = "Erreur : " + message;
-        }
+Voici la mise à jour de la fonction `initialiserApplication()`. Elle force la récupération des colonnes visibles et combine le prénom et le nom si les deux colonnes existent dans ta table `Joueurs` :
 
-        function extraireIds(valeur) {
-            let ids = [];
-            if (typeof valeur === 'number') {
-                ids.push(valeur);
-            } else if (Array.isArray(valeur)) {
-                valeur.forEach(v => {
-                    if (typeof v === 'number') ids.push(v);
-                    else if (typeof v === 'string' && !isNaN(parseInt(v)) && v !== 'L') ids.push(parseInt(v));
-                });
-            } else if (valeur && typeof valeur === 'object' && valeur.id) {
-                ids.push(valeur.id);
-            } else if (typeof valeur === 'string' && !isNaN(parseInt(valeur))) {
-                ids.push(parseInt(valeur));
-            }
-            return ids;
-        }
-
-        // Initialisation Grist
-        grist.ready({
-            requiredAccess: 'full',
-            allowSelectBy: true
-        });
-
-        // Chargement initial des joueurs
+```javascript
+        // Chargement initial des joueurs avec résolution explicite des champs Nom / Prénom
         async function initialiserApplication() {
             try {
                 statusEl.innerHTML = "<span class='success'>Connecté à Grist ! Chargement des joueurs...</span>";
@@ -111,3 +58,77 @@
 
                 if (Array.isArray(rawJoueurs)) {
                     listeJoueursComprete = rawJoueurs;
+                } else if (rawJoueurs && typeof rawJoueurs === 'object' && rawJoueurs.id) {
+                    const ids = rawJoueurs.id || [];
+                    const keys = Object.keys(rawJoueurs);
+                    for (let i = 0; i < ids.length; i++) {
+                        let item = {};
+                        keys.forEach(k => {
+                            item[k] = rawJoueurs[k] ? rawJoueurs[k][i] : null;
+                        });
+                        listeJoueursComprete.push(item);
+                    }
+                }
+
+                selectJoueur.innerHTML = '<option value="">-- Choisir un joueur dans la liste --</option>';
+                
+                listeJoueursComprete.forEach(j => {
+                    let nomAffiche = "";
+
+                    // Extraction dynamique de la valeur textuelle
+                    const extraireTexte = (val) => {
+                        if (!val) return "";
+                        if (typeof val === 'string') return val.trim();
+                        if (Array.isArray(val)) return val.filter(x => x !== 'L').join(' ').trim();
+                        return String(val).trim();
+                    };
+
+                    // Recherche des clés correspondant au nom / prénom
+                    let nomVal = "";
+                    let prenomVal = "";
+
+                    for (let key in j) {
+                        const kLower = key.toLowerCase();
+                        if (kLower === 'nom' || kLower.includes('nom_') || kLower.includes('nomjoueur')) {
+                            nomVal = extraireTexte(j[key]);
+                        }
+                        if (kLower.includes('prenom') || kLower.includes('prénom')) {
+                            prenomVal = extraireTexte(j[key]);
+                        }
+                    }
+
+                    if (nomVal || prenomVal) {
+                        nomAffiche = `${nomVal} ${prenomVal}`.trim();
+                    } else {
+                        // Parcours de secours : trouver la première chaîne non vide qui n'est pas un ID
+                        for (let key in j) {
+                            if (key !== 'id' && !key.startsWith('grist')) {
+                                let valTxt = extraireTexte(j[key]);
+                                if (valTxt && !valTxt.startsWith('L,')) {
+                                    nomAffiche = valTxt;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    j._nomResolver = nomAffiche || ("Joueur #" + j.id);
+                });
+
+                // Tri alphabétique des joueurs
+                listeJoueursComprete.sort((a, b) => a._nomResolver.localeCompare(b._nomResolver));
+
+                listeJoueursComprete.forEach(j => {
+                    const opt = document.createElement('option');
+                    opt.value = j.id;
+                    opt.text = j._nomResolver;
+                    selectJoueur.appendChild(opt);
+                });
+
+                statusEl.style.display = 'none';
+                appContainer.style.display = 'block';
+
+            } catch (err) {
+                afficherErreur("Impossible de charger la table Joueurs : " + err.message);
+            }
+        }
