@@ -10,12 +10,28 @@
         .error { color: #d9534f; background: #fdf7f7; padding: 10px; border-left: 4px solid #d9534f; margin-top: 10px; }
         .success { color: #5cb85c; font-weight: bold; }
         .form-group { margin-bottom: 15px; }
-        label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px; }
-        select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; background: #fff; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px; color: #1e293b; }
         
+        /* Correction visuelle : texte sombre sur fond blanc garanti */
+        select { 
+            width: 100%; 
+            padding: 12px; 
+            border: 2px solid #cbd5e1; 
+            border-radius: 6px; 
+            font-size: 16px; 
+            background-color: #ffffff !important; 
+            color: #0f172a !important; 
+            font-weight: 600;
+        }
+        select option {
+            background-color: #ffffff !important;
+            color: #0f172a !important;
+            padding: 8px;
+        }
+
         table { width: 100%; border-collapse: collapse; margin-bottom: 15px; background: white; }
         th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; font-size: 13px; }
-        th { background-color: #f2f2f2; font-weight: bold; }
+        th { background-color: #f2f2f2; font-weight: bold; color: #0f172a; }
         input[type="number"] { width: 50px; padding: 5px; text-align: center; border: 1px solid #ccc; border-radius: 4px; }
         input[type="text"] { width: 100%; padding: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
         
@@ -37,7 +53,7 @@
         <div class="form-group">
             <label for="select-joueur">Sélectionner un joueur :</label>
             <select id="select-joueur">
-                <option value="">-- Choisir un joueur dans la liste --</option>
+                <option value="">-- Chargement des joueurs... --</option>
             </select>
         </div>
 
@@ -95,13 +111,12 @@
             return ids;
         }
 
-        // Lancement immédiat de l'initialisation sans attendre l'événement bloquant de Grist
+        // Initialisation Grist
         async function initialiserApplication() {
             try {
-                // Initialisation de l'API Grist en arrière-plan
                 grist.ready({ requiredAccess: 'full' });
 
-                statusEl.innerHTML = "<span class='success'>Chargement des données...</span>";
+                statusEl.innerHTML = "<span class='success'>Connexion établie !</span>";
 
                 const rawJoueurs = await grist.docApi.fetchTable('Joueurs');
                 listeJoueursComprete = [];
@@ -123,53 +138,35 @@
                 selectJoueur.innerHTML = '<option value="">-- Choisir un joueur dans la liste --</option>';
                 
                 listeJoueursComprete.forEach(j => {
-                    let nomAffiche = "";
+                    let nomExtrait = "";
 
-                    const nettoyerTexte = (val) => {
-                        if (!val) return "";
-                        if (typeof val === 'string') {
-                            if (val.startsWith('L,')) val = val.replace(/^L,?\s*/, '');
-                            return val.trim();
-                        }
-                        if (Array.isArray(val)) {
-                            return val.filter(x => x !== 'L').join(' ').trim();
-                        }
-                        return String(val).trim();
-                    };
-
-                    if (j.gristHelper_Display) {
-                        nomAffiche = nettoyerTexte(j.gristHelper_Display);
+                    // 1. Essai sur l'affichage calculé natif de Grist
+                    if (j.gristHelper_Display && typeof j.gristHelper_Display === 'string') {
+                        nomExtrait = j.gristHelper_Display.trim();
                     }
 
-                    if (!nomAffiche) {
-                        let partiesNom = [];
+                    // 2. Recherche ciblée uniquement sur les colonnes d'identité (en ignorant explicitement les postes et identifiants)
+                    if (!nomExtrait) {
+                        let partesNom = [];
                         for (let prop in j) {
-                            const keyLower = prop.toLowerCase();
-                            if (keyLower.includes('nom') || keyLower.includes('prenom') || keyLower.includes('prénom') || keyLower.includes('joueur')) {
-                                const txt = nettoyerTexte(j[prop]);
-                                if (txt && !partiesNom.includes(txt)) {
-                                    partiesNom.push(txt);
+                            const pLower = prop.toLowerCase();
+                            // Ignorer les colonnes de postes, d'ID ou de formules Grist
+                            if (pLower.includes('poste') || pLower === 'id' || pLower.startsWith('grist')) continue;
+
+                            if (pLower.includes('nom') || pLower.includes('prenom') || pLower.includes('prénom') || pLower.includes('joueur')) {
+                                let val = j[prop];
+                                if (typeof val === 'string' && val.trim() !== '' && !val.startsWith('L,')) {
+                                    partesNom.push(val.trim());
                                 }
                             }
                         }
-                        if (partiesNom.length > 0) {
-                            nomAffiche = partiesNom.join(' ');
+                        if (partesNom.length > 0) {
+                            nomExtrait = partesNom.join(' ');
                         }
                     }
 
-                    if (!nomAffiche) {
-                        for (let prop in j) {
-                            if (prop !== 'id' && !prop.startsWith('grist')) {
-                                const txt = nettoyerTexte(j[prop]);
-                                if (txt && isNaN(txt)) {
-                                    nomAffiche = txt;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    j._nomResolver = nomAffiche || ("Joueur #" + j.id);
+                    // Enregistrement du libellé nettoyé
+                    j._nomResolver = nomExtrait || ("Joueur #" + j.id);
                 });
 
                 // Tri alphabétique des joueurs
@@ -182,7 +179,6 @@
                     selectJoueur.appendChild(opt);
                 });
 
-                // On masque l'en-tête de statut et on affiche l'application
                 statusEl.parentElement.style.display = 'none';
                 appContainer.style.display = 'block';
 
@@ -191,10 +187,9 @@
             }
         }
 
-        // Lancement au chargement de la page
         initialiserApplication();
 
-        // Événement : Changement de joueur dans le menu déroulant
+        // Événement : Sélection du joueur
         selectJoueur.addEventListener('change', async function() {
             const joueurId = parseInt(this.value);
             if (!joueurId) {
@@ -220,6 +215,287 @@
         });
 
         // Chargement, filtrage et double tri des compétences
+        async function chargerEtTrierGrille(playerPosteIds) {
+            try {
+                tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Chargement des compétences...</td></tr>';
+
+                let postesMap = {};
+                try {
+                    const rawPostes = await grist.docApi.fetchTable('Postes');
+                    let postes = [];
+                    if (Array.isArray(rawPostes)) {
+                        postes = rawPostes;
+                    } else if (rawPostes && typeof rawPostes === 'object' && rawPostes.id) {
+                        const ids = rawPostes.id || [];
+                        const keys = Object.keys(rawPostes);
+                        for (let i = 0; i < ids.length; i++) {
+                            let item = {};
+                            keys.forEach(k => {
+                                item[k] = rawPostes[k] ? rawPostes[k][i] : null;
+                            });
+                            postes.push(item);
+                        }
+                    }
+                    postes.forEach(p => {
+                        postesMap[p.id] = p.Nom || p.Nom_poste || p.Poste || p.Titre || p.gristHelper_Display || ("Poste #" + p.id);
+                    });
+                } catch (e) {
+                    console.warn("Erreur lecture table Postes", e);
+                }
+
+                const rawData = await grist.docApi.fetchTable('Competences');
+                let competences = [];
+                if (Array.isArray(rawData)) {
+                    competences = rawData;
+                } else if (rawData && typeof rawData === 'object' && rawData.id) {
+                    const ids = rawData.id || [];
+                    const keys = Object.keys(rawData);
+                    for (let i = 0; i < ids.length; i++) {
+                        let item = {};
+                        keys.forEach(k => {
+                            item[k] = rawData[k] ? rawData[k][i] : null;
+                        });
+                        competences.push(item);
+                    }
+                }
+
+                let lignesFiltrees = [];
+
+                competences.forEach(comp => {
+                    const typeComp = comp.Type || "Transverse";
+                    const nomComp = comp.Nom_competence || comp.Nom || "Compétence #" + comp.id;
+Compris ! Deux problèmes précis causent cette situation :
+
+1. **Incohérence des données (Mélange Postes / ID) :** L'API `fetchTable('Joueurs')` renvoie l'intégralité des colonnes de la table `Joueurs` (y compris les colonnes de type *Référence* ou *Formule* liées aux postes). La boucle automatique récupère ces valeurs parasites en pensant trouver le nom du joueur.
+2. **Problème de lisibilité (Texte blanc sur fond blanc) :** Le style par défaut du navigateur ou du thème Grist applique un texte clair sur les éléments de liste déroulante `<select>` et `<option>`.
+
+---
+
+### Solution ciblée
+
+Pour régler ces deux points définitivement :
+1. **Lisibilité :** On impose un style CSS explicite sur le `<select>` et ses `<option>` (`color: #1e293b !important; background-color: #ffffff !important;`).
+2. **Nom des joueurs :** Plutôt que de deviner à travers toutes les colonnes, on extrait explicitement la valeur de la colonne textuelle du nom (ou le libellé calculé par Grist via `gristHelper_Display` s'il s'agit d'une formule).
+
+Voici le code complet corrigé pour **`Competences.html`** :
+
+```html
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Saisie Terrain U11</title>
+    <script src="[https://docs.getgrist.com/grist-plugin-api.js](https://docs.getgrist.com/grist-plugin-api.js)"></script>
+    <style>
+        body { font-family: sans-serif; padding: 15px; background: #f4f6f9; color: #333; max-width: 800px; margin: auto; }
+        .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 15px; }
+        .error { color: #d9534f; background: #fdf7f7; padding: 10px; border-left: 4px solid #d9534f; margin-top: 10px; }
+        .success { color: #5cb85c; font-weight: bold; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px; color: #1e293b; }
+        
+        /* Correction visuelle : Texte sombre sur fond blanc garanti */
+        select { 
+            width: 100%; 
+            padding: 12px; 
+            border: 2px solid #cbd5e1; 
+            border-radius: 6px; 
+            font-size: 16px; 
+            background-color: #ffffff !important; 
+            color: #0f172a !important; 
+            font-weight: 600;
+        }
+        select option {
+            background-color: #ffffff !important;
+            color: #0f172a !important;
+            padding: 10px;
+        }
+        
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; background: white; }
+        th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; font-size: 13px; color: #0f172a; }
+        th { background-color: #f2f2f2; font-weight: bold; }
+        input[type="number"] { width: 50px; padding: 5px; text-align: center; border: 1px solid #ccc; border-radius: 4px; }
+        input[type="text"] { width: 100%; padding: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        
+        button.btn-save { background: #5cb85c; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; width: 100%; font-weight: bold; font-size: 16px; }
+        button.btn-save:hover { background: #4cae4c; }
+        .type-badge { font-size: 11px; padding: 2px 6px; border-radius: 3px; background: #e2e8f0; color: #475569; display: inline-block; margin-bottom: 2px; }
+        .cat-badge { font-size: 11px; padding: 2px 6px; border-radius: 3px; background: #e0f2fe; color: #0369a1; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h3>Feuille d'Évaluation Terrain - U11</h3>
+        <div id="connection-status">Connexion à Grist en cours...</div>
+        <div id="error-box" class="error" style="display:none;"></div>
+    </div>
+
+    <div id="app-container" class="card" style="display:none;">
+        <div class="form-group">
+            <label for="select-joueur">Sélectionner un joueur :</label>
+            <select id="select-joueur">
+                <option value="">-- Chargement des joueurs... --</option>
+            </select>
+        </div>
+
+        <div id="grille-container" style="display:none;">
+            <table id="eval-table">
+                <thead>
+                    <tr>
+                        <th style="width: 12%;">Type</th>
+                        <th style="width: 25%;">Catégorie / Poste</th>
+                        <th style="width: 28%;">Compétence</th>
+                        <th style="width: 10%;">Note (1-5)</th>
+                        <th style="width: 25%;">Commentaire</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body">
+                    <!-- Les lignes triées seront injectées ici -->
+                </tbody>
+            </table>
+            
+            <button type="button" class="btn-save" id="btn-valider">Enregistrer toutes les évaluations</button>
+        </div>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('connection-status');
+        const errorEl = document.getElementById('error-box');
+        const appContainer = document.getElementById('app-container');
+        const selectJoueur = document.getElementById('select-joueur');
+        const grilleContainer = document.getElementById('grille-container');
+        const tableBody = document.getElementById('table-body');
+        const btnValider = document.getElementById('btn-valider');
+
+        let listeJoueursComprete = [];
+        let joueurActif = null;
+
+        function afficherErreur(message) {
+            errorEl.style.display = 'block';
+            errorEl.innerText = "Erreur : " + message;
+        }
+
+        function extraireIds(valeur) {
+            let ids = [];
+            if (typeof valeur === 'number') {
+                ids.push(valeur);
+            } else if (Array.isArray(valeur)) {
+                valeur.forEach(v => {
+                    if (typeof v === 'number') ids.push(v);
+                    else if (typeof v === 'string' && !isNaN(parseInt(v)) && v !== 'L') ids.push(parseInt(v));
+                });
+            } else if (valeur && typeof valeur === 'object' && valeur.id) {
+                ids.push(valeur.id);
+            } else if (typeof valeur === 'string' && !isNaN(parseInt(valeur))) {
+                ids.push(parseInt(valeur));
+            }
+            return ids;
+        }
+
+        async function initialiserApplication() {
+            try {
+                grist.ready({ requiredAccess: 'full' });
+
+                const rawJoueurs = await grist.docApi.fetchTable('Joueurs');
+                listeJoueursComprete = [];
+
+                if (Array.isArray(rawJoueurs)) {
+                    listeJoueursComprete = rawJoueurs;
+                } else if (rawJoueurs && typeof rawJoueurs === 'object' && rawJoueurs.id) {
+                    const ids = rawJoueurs.id || [];
+                    const keys = Object.keys(rawJoueurs);
+                    for (let i = 0; i < ids.length; i++) {
+                        let item = {};
+                        keys.forEach(k => {
+                            item[k] = rawJoueurs[k] ? rawJoueurs[k][i] : null;
+                        });
+                        listeJoueursComprete.push(item);
+                    }
+                }
+
+                selectJoueur.innerHTML = '<option value="">-- Choisir un joueur dans la liste --</option>';
+                
+                listeJoueursComprete.forEach(j => {
+                    let nomResolus = "";
+
+                    // 1. Essayer gristHelper_Display si le nom est calculé par formule
+                    if (j.gristHelper_Display && typeof j.gristHelper_Display === 'string') {
+                        nomResolus = j.gristHelper_Display.trim();
+                    }
+
+                    // 2. Cibler précisément les colonnes de nom / prénom (en ignorant les listes/postes)
+                    if (!nomResolus) {
+                        let pNom = j.Nom || j.Nom_du_joueur || j.Nom_Joueur || "";
+                        let pPrenom = j.Prenom || j.Prénom || "";
+
+                        if (typeof pNom === 'string' && typeof pPrenom === 'string') {
+                            nomResolus = `${pNom} ${pPrenom}`.trim();
+                        } else if (typeof pNom === 'string' && pNom.trim()) {
+                            nomResolus = pNom.trim();
+                        }
+                    }
+
+                    // 3. Si toujours vide, chercher une chaîne simple qui n'est pas un tableau ni un identifiant de poste
+                    if (!nomResolus) {
+                        for (let prop in j) {
+                            if (prop !== 'id' && !prop.startsWith('grist') && !prop.toLowerCase().includes('poste')) {
+                                let val = j[prop];
+                                if (typeof val === 'string' && val.trim() !== '' && !val.startsWith('L,')) {
+                                    nomResolus = val.trim();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    j._nomResolver = nomResolus || ("Joueur #" + j.id);
+                });
+
+                // Tri alphabétique par nom
+                listeJoueursComprete.sort((a, b) => a._nomResolver.localeCompare(b._nomResolver));
+
+                listeJoueursComprete.forEach(j => {
+                    const opt = document.createElement('option');
+                    opt.value = j.id;
+                    opt.text = j._nomResolver;
+                    selectJoueur.appendChild(opt);
+                });
+
+                statusEl.parentElement.style.display = 'none';
+                appContainer.style.display = 'block';
+
+            } catch (err) {
+                afficherErreur("Impossible de charger la table Joueurs : " + err.message);
+            }
+        }
+
+        initialiserApplication();
+
+        selectJoueur.addEventListener('change', async function() {
+            const joueurId = parseInt(this.value);
+            if (!joueurId) {
+                grilleContainer.style.display = 'none';
+                joueurActif = null;
+                return;
+            }
+
+            joueurActif = listeJoueursComprete.find(j => j.id === joueurId);
+            if (!joueurActif) return;
+
+            let playerPosteIds = [];
+            for (let prop in joueurActif) {
+                const keyLower = prop.toLowerCase();
+                if (keyLower.includes('poste') || keyLower.includes('principal') || keyLower.includes('secondaire')) {
+                    playerPosteIds = playerPosteIds.concat(extraireIds(joueurActif[prop]));
+                }
+            }
+            playerPosteIds = [...new Set(playerPosteIds)];
+
+            grilleContainer.style.display = 'block';
+            await chargerEtTrierGrille(playerPosteIds);
+        });
+
         async function chargerEtTrierGrille(playerPosteIds) {
             try {
                 tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Chargement des compétences...</td></tr>';
@@ -337,7 +613,6 @@
             }
         }
 
-        // Enregistrement groupé
         btnValider.addEventListener('click', async function() {
             if (!joueurActif) return;
 
