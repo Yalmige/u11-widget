@@ -41,16 +41,16 @@
         grist.docApi.fetchTable('Competences')
       ]);
 
-      // Mappage compétence -> Groupe (Priorité à REG1_competences_transverses)
+      // Mappage compétence -> Groupe avec nettoyage des espaces (.trim())
       const compGroupMap = {};
       if (compsData && compsData.id) {
         for (let i = 0; i < compsData.id.length; i++) {
           const compId = compsData.id[i];
-          const groupe = compsData.REG1_competences_transverses ? compsData.REG1_competences_transverses[i] : 
-                        (compsData.Type ? compsData.Type[i] : 
-                        (compsData.Groupe ? compsData.Groupe[i] : "Général"));
+          let groupeVal = compsData.REG1_competences_transverses ? compsData.REG1_competences_transverses[i] : 
+                         (compsData.Type ? compsData.Type[i] : 
+                         (compsData.Groupe ? compsData.Groupe[i] : "Général"));
           
-          compGroupMap[compId] = groupe || "Autre";
+          compGroupMap[compId] = groupeVal ? String(groupeVal).trim() : "Autre";
         }
       }
 
@@ -78,6 +78,8 @@
       }
 
       const categories = Object.keys(groupeTotaux);
+      console.log("Groupes détectés pour ce joueur :", categories);
+      
       const scores = categories.map(g => (groupeTotaux[g] / groupeCompte[g]));
 
       drawRadar(categories, scores);
@@ -91,8 +93,8 @@
     svg.innerHTML = '';
     
     if (labels.length < 3) {
-      svg.innerHTML = `<text x="${center}" y="${center}" text-anchor="middle" fill="#c0392b" font-size="11">
-        Nécessite au moins 3 groupes évalués (${labels.length}/3)
+      svg.innerHTML = `<text x="${center}" y="${center}" text-anchor="middle" fill="#c0392b" font-size="10">
+        Groupes détectés : ${labels.join(', ')} (${labels.length}/3 min)
       </text>`;
       return;
     }
@@ -100,7 +102,7 @@
     const totalAxes = labels.length;
     const angleStep = (Math.PI * 2) / totalAxes;
 
-    // Polygons de toile de fond (niveaux 1 à 5)
+    // Toile de fond
     for (let level = 1; level <= maxVal; level++) {
       const r = (radius / maxVal) * level;
       let points = [];
@@ -133,7 +135,7 @@
       svg.appendChild(text);
     }
 
-    // Zone tracée du joueur
+    // Polygone joueur
     let dataPoints = [];
     for (let i = 0; i < totalAxes; i++) {
       const angle = i * angleStep - Math.PI / 2;
