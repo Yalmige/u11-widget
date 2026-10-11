@@ -98,7 +98,7 @@
         // Initialisation Grist
         grist.ready({ requiredAccess: 'full' });
 
-        // Chargement initial des joueurs pour alimenter le menu déroulant
+// Chargement initial des joueurs (Corrigé pour détecter à coup sûr le nom)
         async function initialiserApplication() {
             try {
                 statusEl.innerHTML = "<span class='success'>Connecté à Grist ! Chargement des joueurs...</span>";
@@ -122,19 +122,28 @@
 
                 selectJoueur.innerHTML = '<option value="">-- Choisir un joueur --</option>';
                 
-                // Tri alphabétique des joueurs
-                listeJoueursComprete.sort((a, b) => {
-                    let nomA = (a.Nom || a.Nom_Du_Joueur || a.Prenom || "").toString();
-                    let nomB = (b.Nom || b.Nom_Du_Joueur || b.Prenom || "").toString();
-                    return nomA.localeCompare(nomB);
+                // On s'assure d'identifier le champ de nom de manière robuste pour chaque joueur
+                listeJoueursComprete.forEach(j => {
+                    // Recherche intelligente du nom dans toutes les propriétés de la ligne
+                    let nomAffichage = j.Nom || j.Nom_Du_Joueur || j.Nom_famille || j.Prenom || j.Prénom;
+                    
+                    if (!nomAffichage) {
+                        const keys = Object.keys(j);
+                        const textKey = keys.find(k => typeof j[k] === 'string' && k !== 'id' && j[k].trim() !== '');
+                        nomAffichage = textKey ? j[k] : ("Joueur #" + j.id);
+                    }
+
+                    // Stockage temporaire du nom résolu pour le tri et l'affichage
+                    j._nomResolver = nomAffichage;
                 });
 
+                // Tri alphabétique des joueurs par leur nom résolu
+                listeJoueursComprete.sort((a, b) => a._nomResolver.localeCompare(b._nomResolver));
+
                 listeJoueursComprete.forEach(j => {
-                    let nom = j.Nom || j.Nom_Du_Joueur || j.Prenom || ("Joueur #" + j.id);
-                    let prenom = j.Prenom || j.Prénom || "";
                     const opt = document.createElement('option');
                     opt.value = j.id;
-                    opt.text = `${nom} ${prenom}`.trim();
+                    opt.text = j._nomResolver;
                     selectJoueur.appendChild(opt);
                 });
 
