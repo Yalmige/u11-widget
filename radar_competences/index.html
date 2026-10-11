@@ -6,23 +6,23 @@
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 5px; text-align: center; background: transparent; }
-    h3 { margin: 0 0 2px 0; font-size: 13px; color: #2c3e50; }
-    #legend { font-size: 10px; margin-bottom: 5px; color: #555; }
+    h3 { margin: 0 0 2px 0; font-size: 14px; color: #2c3e50; }
+    #legend { font-size: 11px; margin-bottom: 5px; color: #555; }
     .player-legend { color: #2980b9; font-weight: bold; }
     .team-legend { color: #7f8c8d; font-weight: bold; }
-    #radar-container { width: 100%; max-width: 300px; margin: 0 auto; }
+    #radar-container { width: 100%; max-width: 420px; margin: 0 auto; }
     svg { width: 100%; height: auto; overflow: visible; }
     .grid-line { stroke: #e0e0e0; stroke-width: 1; fill: none; }
     .axis { stroke: #cccccc; stroke-width: 1; }
     
     /* Style du joueur (Bleu) */
     .radar-poly { fill: rgba(52, 152, 219, 0.3); stroke: #2980b9; stroke-width: 2.5; }
-    .radar-point { fill: #2980b9; r: 3.5; }
+    .radar-point { fill: #2980b9; r: 4; }
     
     /* Style de l'équipe (Gris / Pointillé) */
     .team-poly { fill: rgba(127, 140, 141, 0.15); stroke: #7f8c8d; stroke-width: 1.5; stroke-dasharray: 4,4; }
     
-    .label { font-size: 9px; font-weight: 600; fill: #333; text-anchor: middle; }
+    .label { font-size: 10px; font-weight: 600; fill: #333; text-anchor: middle; }
   </style>
 </head>
 <body>
@@ -32,12 +32,12 @@
   <span class="player-legend">■ Joueur</span> &nbsp;|&nbsp; <span class="team-legend">╍╍ Moyenne Équipe</span>
 </div>
 <div id="radar-container">
-  <svg id="radarSVG" viewBox="0 0 300 300"></svg>
+  <svg id="radarSVG" viewBox="0 0 360 360"></svg>
 </div>
 
 <script>
   const svg = document.getElementById('radarSVG');
-  const center = 150, radius = 85, maxVal = 5;
+  const center = 180, radius = 115, maxVal = 5;
 
   grist.ready({ requiredAccess: 'read' });
 
@@ -53,7 +53,6 @@
         grist.docApi.fetchTable('Competences')
       ]);
 
-      // Mappage compétence -> Groupe
       const compGroupMap = {};
       if (compsData && compsData.id) {
         for (let i = 0; i < compsData.id.length; i++) {
@@ -72,11 +71,8 @@
       const colNote = evalsData.note !== undefined ? 'note' : 'Note';
       const colComp = evalsData.Competence !== undefined ? 'Competence' : 'competence';
 
-      // 1. Calcul des moyennes du JOUEUR par groupe
       const playerTotaux = {};
       const playerCompte = {};
-
-      // 2. Calcul des moyennes de l'ÉQUIPE ENTIÈRE par groupe
       const teamTotaux = {};
       const teamCompte = {};
 
@@ -89,11 +85,9 @@
         if (!isNaN(note) && note > 0) {
           const grp = compGroupMap[cId] || "Autre";
 
-          // Pour l'équipe globale
           teamTotaux[grp] = (teamTotaux[grp] || 0) + note;
           teamCompte[grp] = (teamCompte[grp] || 0) + 1;
 
-          // Pour le joueur sélectionné
           if (jId === record.id) {
             playerTotaux[grp] = (playerTotaux[grp] || 0) + note;
             playerCompte[grp] = (playerCompte[grp] || 0) + 1;
@@ -117,7 +111,7 @@
     svg.innerHTML = '';
     
     if (labels.length < 3) {
-      svg.innerHTML = `<text x="${center}" y="${center}" text-anchor="middle" fill="#c0392b" font-size="10">
+      svg.innerHTML = `<text x="${center}" y="${center}" text-anchor="middle" fill="#c0392b" font-size="11">
         Nécessite au moins 3 groupes (${labels.length}/3)
       </text>`;
       return;
@@ -126,7 +120,7 @@
     const totalAxes = labels.length;
     const angleStep = (Math.PI * 2) / totalAxes;
 
-    // Toile de fond (cercles/polygones concentriques)
+    // Toile de fond concentrique
     for (let level = 1; level <= maxVal; level++) {
       const r = (radius / maxVal) * level;
       let points = [];
@@ -151,15 +145,15 @@
       svg.appendChild(line);
 
       const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      const lr = radius + 25;
+      const lr = radius + 30;
       text.setAttribute("x", center + lr * Math.cos(angle));
-      text.setAttribute("y", center + lr * Math.sin(angle) + 3);
+      text.setAttribute("y", center + lr * Math.sin(angle) + 4);
       text.setAttribute("class", "label");
       text.textContent = labels[i] + ` (${playerValues[i].toFixed(1)})`;
       svg.appendChild(text);
     }
 
-    // 1. Tracé de la moyenne ÉQUIPE (en arrière-plan, pointillé gris)
+    // 1. Moyenne ÉQUIPE
     let teamPoints = [];
     for (let i = 0; i < totalAxes; i++) {
       const angle = i * angleStep - Math.PI / 2;
@@ -171,7 +165,7 @@
     teamPoly.setAttribute("class", "team-poly");
     svg.appendChild(teamPoly);
 
-    // 2. Tracé du JOUEUR (en premier plan, plein bleu)
+    // 2. JOUEUR
     let playerPoints = [];
     for (let i = 0; i < totalAxes; i++) {
       const angle = i * angleStep - Math.PI / 2;
@@ -183,7 +177,6 @@
     playerPoly.setAttribute("class", "radar-poly");
     svg.appendChild(playerPoly);
 
-    // Points du joueur
     playerPoints.forEach(pt => {
       const [cx, cy] = pt.split(',');
       const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
