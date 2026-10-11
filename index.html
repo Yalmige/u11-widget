@@ -35,20 +35,81 @@
 
     <div id="app-container" class="card" style="display:none;">
         <div class="form-group">
-            <label for="select-L'image est très claire : le widget parvient bien à lire la table `Joueurs` (puisqu'il trouve 17 enregistrements), mais il n'arrive pas à extraire le libellé du nom et retombe sur le mécanisme de secours `"Joueur #" + j.id`[cite: 2].
+            <label for="select-joueur">Sélectionner un joueur :</label>
+            <select id="select-joueur">
+                <option value="">-- Chargement des joueurs... --</option>
+            </select>
+        </div>
 
-Cela se produit généralement pour deux raisons principales avec l'API Grist :
-1. **Les colonnes de noms sont des colonnes de type Formule / Référence** (ou ont des identifiants internes comme `Nom_du_joueur` distincts de l'étiquette affichée).
-2. **Le format renvoyé par `fetchTable`** nécessite de passer par les fonctions d'assistance Grist pour résoudre les colonnes d'affichage.
+        <div id="grille-container" style="display:none;">
+            <table id="eval-table">
+                <thead>
+                    <tr>
+                        <th style="width: 12%;">Type</th>
+                        <th style="width: 25%;">Catégorie / Poste</th>
+                        <th style="width: 28%;">Compétence</th>
+                        <th style="width: 10%;">Note (1-5)</th>
+                        <th style="width: 25%;">Commentaire</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body">
+                    <!-- Les lignes triées seront injectées ici -->
+                </tbody>
+            </table>
+            
+            <button type="button" class="btn-save" id="btn-valider">Enregistrer toutes les évaluations</button>
+        </div>
+    </div>
 
----
+    <script>
+        const statusEl = document.getElementById('connection-status');
+        const errorEl = document.getElementById('error-box');
+        const appContainer = document.getElementById('app-container');
+        const selectJoueur = document.getElementById('select-joueur');
+        const grilleContainer = document.getElementById('grille-container');
+        const tableBody = document.getElementById('table-body');
+        const btnValider = document.getElementById('btn-valider');
 
-### Solution : Utilisation de `grist.docApi.fetchSelectedTable()` ou ciblage direct des champs
+        let listeJoueursComprete = [];
+        let joueurActif = null;
 
-Voici la mise à jour de la fonction `initialiserApplication()`. Elle force la récupération des colonnes visibles et combine le prénom et le nom si les deux colonnes existent dans ta table `Joueurs` :
+        function afficherErreur(message) {
+            errorEl.style.display = 'block';
+            errorEl.innerText = "Erreur : " + message;
+        }
 
-```javascript
-        // Chargement initial des joueurs avec résolution explicite des champs Nom / Prénom
+        function extraireIds(valeur) {
+            let ids = [];
+            if (typeof valeur === 'number') {
+                ids.push(valeur);
+            } else if (Array.isArray(valeur)) {
+                valeur.forEach(v => {
+                    if (typeof v === 'number') ids.push(v);
+                    else if (typeof v === 'string' && !isNaN(parseInt(v)) && v !== 'L') ids.push(parseInt(v));
+                });
+            } else if (valeur && typeof valeur === 'object' && valeur.id) {
+                ids.push(valeur.id);
+            } else if (typeof valeur === 'string' && !isNaN(parseInt(valeur))) {
+                ids.push(parseInt(valeur));
+            }
+            return ids;
+        }
+
+        function extraireTexte(valeur) {
+            if (valeur === null || valeur === undefined) return "";
+            if (typeof valeur === 'string') return valeur.trim();
+            if (Array.isArray(valeur)) {
+                return valeur.filter(x => x !== 'L').join(' ').trim();
+            }
+            return String(valeur).trim();
+        }
+
+        // Connexion Grist
+        grist.ready({
+            requiredAccess: 'full'
+        });
+
+        // Chargement universel de la table Joueurs
         async function initialiserApplication() {
             try {
                 statusEl.innerHTML = "<span class='success'>Connecté à Grist ! Chargement des joueurs...</span>";
@@ -70,52 +131,49 @@ Voici la mise à jour de la fonction `initialiserApplication()`. Elle force la r
                     }
                 }
 
-                selectJoueur.innerHTML = '<option value="">-- Choisir un joueur dans la liste --</option>';
+                selectJoueur.innerHTML = '<option value="">-- Choisir un joueur --</option>';
                 
                 listeJoueursComprete.forEach(j => {
-                    let nomAffiche = "";
+                    let nomPart = "";
+                    let prenomPart = "";
 
-                    // Extraction dynamique de la valeur textuelle
-                    const extraireTexte = (val) => {
-                        if (!val) return "";
-                        if (typeof val === 'string') return val.trim();
-                        if (Array.isArray(val)) return val.filter(x => x !== 'L').join(' ').trim();
-                        return String(val).trim();
-                    };
+                    // Parcours de toutes les propriétés du joueur pour identifier les champs de texte
+                    for (let prop in j) {
+                        if (prop === 'id' || prop.startsWith('grist')) continue;
+                        
+                        const pLower = prop.toLowerCase();
+                        const valTxt = extraireTexte(j[prop]);
 
-                    // Recherche des clés correspondant au nom / prénom
-                    let nomVal = "";
-                    let prenomVal = "";
+                        if (!valTxt || valTxt.startsWith('L,')) continue;
 
-                    for (let key in j) {
-                        const kLower = key.toLowerCase();
-                        if (kLower === 'nom' || kLower.includes('nom_') || kLower.includes('nomjoueur')) {
-                            nomVal = extraireTexte(j[key]);
-                        }
-                        if (kLower.includes('prenom') || kLower.includes('prénom')) {
-                            prenomVal = extraireTexte(j[key]);
+                        if (pLower.includes('prenom') || pLower.includes('prénom')) {
+                            prenomPart = valTxt;
+                        } else if (pLower.includes('nom') || pLower.includes('joueur')) {
+                            nomPart = valTxt;
+                        } else if (!nomPart && typeof j[prop] === 'string') {
+                            nomPart = valTxt;
                         }
                     }
 
-                    if (nomVal || prenomVal) {
-                        nomAffiche = `${nomVal} ${prenomVal}`.trim();
-                    } else {
-                        // Parcours de secours : trouver la première chaîne non vide qui n'est pas un ID
-                        for (let key in j) {
-                            if (key !== 'id' && !key.startsWith('grist')) {
-                                let valTxt = extraireTexte(j[key]);
-                                if (valTxt && !valTxt.startsWith('L,')) {
-                                    nomAffiche = valTxt;
+                    let nomComplet = `${nomPart} ${prenomPart}`.trim();
+
+                    // Fallback si aucun champ explicite n'a fonctionné
+                    if (!nomComplet) {
+                        for (let prop in j) {
+                            if (prop !== 'id' && !prop.startsWith('grist')) {
+                                let txt = extraireTexte(j[prop]);
+                                if (txt && !txt.startsWith('L,')) {
+                                    nomComplet = txt;
                                     break;
                                 }
                             }
                         }
                     }
 
-                    j._nomResolver = nomAffiche || ("Joueur #" + j.id);
+                    j._nomResolver = nomComplet || ("Joueur #" + j.id);
                 });
 
-                // Tri alphabétique des joueurs
+                // Tri alphabétique des joueurs par nom résolu
                 listeJoueursComprete.sort((a, b) => a._nomResolver.localeCompare(b._nomResolver));
 
                 listeJoueursComprete.forEach(j => {
@@ -132,3 +190,83 @@ Voici la mise à jour de la fonction `initialiserApplication()`. Elle force la r
                 afficherErreur("Impossible de charger la table Joueurs : " + err.message);
             }
         }
+
+        initialiserApplication();
+
+        // Événement : Changement de joueur dans la liste déroulante
+        selectJoueur.addEventListener('change', async function() {
+            const joueurId = parseInt(this.value);
+            if (!joueurId) {
+                grilleContainer.style.display = 'none';
+                joueurActif = null;
+                return;
+            }
+
+            joueurActif = listeJoueursComprete.find(j => j.id === joueurId);
+            if (!joueurActif) return;
+
+            let playerPosteIds = [];
+            for (let prop in joueurActif) {
+                const keyLower = prop.toLowerCase();
+                if (keyLower.includes('poste') || keyLower.includes('principal') || keyLower.includes('secondaire')) {
+                    playerPosteIds = playerPosteIds.concat(extraireIds(joueurActAh, parfait ! Le fait d'être directement dans l'interface de Grist résout le problème de connexion : `grist.ready()` fonctionne de manière native et sécurisée.
+
+Si les noms apparaissent toujours sous la forme `Joueur #1`, `Joueur #2`, cela signifie que **le nom de la colonne dans ta table `Joueurs` est légèrement différent** de ce que le code cherche (ou que cette colonne est un champ de formule/référence).
+
+Voici le code **complet et autonome** de `Competences.html`. Dans cette version, j'ai ajouté une inspection **complète et insensible à la casse** de **toutes** les colonnes de chaque joueur, ainsi qu'un secours sur le nom du champ d'affichage interne de Grist (`gristHelper_Display`).
+
+Remplace tout le code de ton fichier sur GitHub par celui-ci :
+
+```html
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Saisie Terrain U11</title>
+    <script src="[https://docs.getgrist.com/grist-plugin-api.js](https://docs.getgrist.com/grist-plugin-api.js)"></script>
+    <style>
+        body { font-family: sans-serif; padding: 15px; background: #f4f6f9; color: #333; max-width: 800px; margin: auto; }
+        .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 15px; }
+        .error { color: #d9534f; background: #fdf7f7; padding: 10px; border-left: 4px solid #d9534f; margin-top: 10px; }
+        .success { color: #5cb85c; font-weight: bold; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px; }
+        select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; background: #fff; }
+        
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; background: white; }
+        th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; font-size: 13px; }
+        th { background-color: #f2f2f2; font-weight: bold; }
+        input[type="number"] { width: 50px; padding: 5px; text-align: center; border: 1px solid #ccc; border-radius: 4px; }
+        input[type="text"] { width: 100%; padding: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        
+        button.btn-save { background: #5cb85c; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; width: 100%; font-weight: bold; font-size: 16px; }
+        button.btn-save:hover { background: #4cae4c; }
+        .type-badge { font-size: 11px; padding: 2px 6px; border-radius: 3px; background: #e2e8f0; color: #475569; display: inline-block; margin-bottom: 2px; }
+        .cat-badge { font-size: 11px; padding: 2px 6px; border-radius: 3px; background: #e0f2fe; color: #0369a1; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h3>Feuille d'Évaluation Terrain - U11</h3>
+        <div id="connection-status">Connexion à Grist en cours...</div>
+        <div id="error-box" class="error" style="display:none;"></div>
+    </div>
+
+    <div id="app-container" class="card" style="display:none;">
+        <div class="form-group">
+            <label for="select-joueur">Sélectionner un joueur :</label>
+            <select id="select-joueur">
+                <option value="">-- Choisir un joueur dans la liste --</option>
+            </select>
+        </div>
+
+        <div id="grille-container" style="display:none;">
+            <table id="eval-table">
+                <thead>
+                    <tr>
+                        <th style="width: 12%;">Type</th>
+                        <th style="width: 25%;">Catégorie / Poste</th>
+                        <th style="width: 28%;">Compétence</th>
+                        <th style="width: 10%;">Note (1-5)</th>
+                        <th style="width
